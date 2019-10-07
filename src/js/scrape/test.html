@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title>Document</title>
+
+    <style>
+
+        body {
+            position: relative;
+            padding: 50px;
+        }
+
+        .scroll-to {
+            min-height: 33vh;
+        }
+
+        .below-fold {
+            min-height: 80vh;
+        }
+
+        .counter {
+            height: 100px;
+            width: 100vw;
+            position: fixed;
+            top: 0;
+            left: 0;
+            background: lightgreen;
+        }
+
+    </style>
+</head>
+
+<body>
+
+    <div class="above">
+        <h1>this is above the fold</h1>
+        <div class="counter">
+            <p>
+                expected: <span id="expected">0</span>
+            </p>
+
+            <p>
+                retrieved: <span id="retrieved">0</span>
+            </p>
+
+            <p>
+                finished retrieving: <span id="finished">false</span>
+            </p>
+        </div>
+    </div>
+
+
+    <!--  first below fold -->
+    <div id="below-fold-1" class="below-fold" style="background-color:pink">
+        first below fold page break
+    </div>
+    
+    <div id="scroll-1" class="scroll-to">
+        <h1>first scroll to</h1>
+    </div>
+
+
+    <!--  second below fold -->
+    <div id="below-fold-2" class="below-fold" style="background-color:lightblue">
+        Second below fold page break
+    </div>
+
+    <div id="scroll-2" class="scroll-to">
+        <h1>second scroll to</h1>
+    </div>
+
+</body>
+    <script>
+
+        const count = 2 + Math.round(Math.random() * 5)
+
+        function updateCount(selector, add=1) {
+            const el = document.querySelector(selector);
+            const prev = el.textContent.replace(/[^\d]+/g, '');
+            const number = Number(prev) + add
+
+            el.textContent = number;
+        }
+
+        async function createElements(rootEl, prefix='prefix', delay=2) {
+            const promise = Promise.resolve();
+
+            updateCount('#expected', count);
+
+            for (let i = 0; i < count; i++) {
+                const info = document.createElement('div');
+                info.innerHTML = `<p class="total-value ${prefix}-value-${i}">some value (${i} / ${count}):<span class="value">${Math.random()}</span></p>`;
+                info.style.height = `${Math.round(Math.random() * 4)}0vh`;
+
+                const waitTime = (1 + Math.round(Math.random() * delay)) * 1000;
+
+                promise.then(() => {
+                    let res;
+                    let rej;
+                    const p = new Promise((res_) => {
+                        res = res_;
+                    });
+
+                    setTimeout(() => {
+                        rootEl.append(info)
+                        res();
+                    }, waitTime)
+
+                    return p;
+                });
+
+            }
+
+            return promise;
+        }
+
+        async function callback(entries, observer) {
+            entries.forEach(async entry => {
+                // console.log(entry, entry.target, entry.isIntersecting, entry.intersectionRatio);
+
+                if (entry.isIntersecting) {
+                    observer.unobserve(entry.target);
+
+                    await createElements(entry.target, entry.target.id)
+                }
+            });
+        }
+
+        async function waitTillScrolledTo(selector, cb, delay=1000) {
+            const options = {
+                // root: document.querySelector(selector),
+                rootMargin: '0px',
+                threshold: 0.8
+            }
+
+            const observer = new IntersectionObserver(cb, options);
+
+            Array.prototype.slice.call(document.querySelectorAll(selector)).forEach(el => {
+                observer.observe(el);
+            });
+        }
+
+
+
+        // retrieving elements
+
+        async function scroll(distance=0.80,  minScrollDelay = 250, scrollingTime = 500) {
+            const randomScrollDelay = minScrollDelay + Math.round(Math.random() * minScrollDelay);
+            const innerHeight = window.innerHeight;
+            const remainingHeight = 1 - distance;
+
+            let res, rej;
+            const promise = new Promise((res_, rej_) => {
+                res = res_;
+                rej = rej_;
+            });
+            setTimeout(() => {
+                const randomDist = window.scrollY + (distance * innerHeight) + Math.round(Math.random() * (remainingHeight * innerHeight)) 
+
+                window.scrollBy({
+                    top: randomDist,
+                    behavior: 'smooth',
+                });
+
+                setTimeout(() => {
+                    res();
+                }, scrollingTime); // wait for scrolling
+
+            }, randomScrollDelay)
+
+            return promise;
+        }
+
+        async function scrollToEnd(marginError = 100, waitForContent = 500) {
+            const innerHeight = window.innerHeight;
+            let diff;
+
+            do {
+                await scroll();
+                await delay(500); // wait for some content to load maybe
+                const scrollHeight = document.body.scrollHeight;
+                const currentY = window.scrollY + innerHeight;
+                diff = scrollHeight - currentY;
+                console.log(`\nscrollHeight: ${scrollHeight}, currentY: ${currentY}, diff: ${diff}`)
+            } while (diff >= marginError);
+
+
+            return true;
+
+        }
+
+        async function delay(timeout = 0) {
+            let res;
+            const promise = new Promise(res_ => {
+                res = res_;
+            });
+
+            setTimeout(res, timeout);
+
+            return promise;
+        }
+
+        async function waitFor(condition, timeout=10000, pollInterval=100) {
+
+            if (!timeout) {
+                return false;
+            } else if (await condition()) {
+                return true;
+            } else {
+                let res, rej;
+                const promise = new Promise((res_, rej_) => {
+                    res = res_;
+                    rej = rej_;
+                });
+
+                setTimeout(async () => {
+                    const result = await waitFor(condition, timeout - pollInterval, pollInterval);
+                    res(result);
+                }, pollInterval);
+
+                return promise;
+            }
+        }
+
+        async function findElement(selector, context, timeout = 5000) {
+            await waitFor(() => {
+                return !!(context || document).querySelector(selector);
+            }, timeout);
+
+            const el = (context || document).querySelector(selector);
+
+            return el || null;
+        }
+
+        async function main() {
+            const now = new Date();
+            console.log('page is fully loaded');
+
+            await delay(1000);
+            window.scrollTo(0,0);
+            await delay(1000);
+
+            console.log('at top');
+
+            await scrollToEnd();
+            console.log('at end');
+
+            const el = await findElement('.scroll-2-value-00 .value');
+            if (el) {
+                console.log('content: ', el.textContent);
+            } else {
+                console.log('el not found');
+            }
+            
+            console.log(`\nTime Executed: ${(Date.now() - now)/1000} seconds`);
+        }
+
+        window.addEventListener('load', async (e) => {
+            setTimeout(async () => { 
+                waitTillScrolledTo('#scroll-1', callback)
+                waitTillScrolledTo('#scroll-2', callback)
+            });
+            
+            main();
+
+        });
+
+        // main();
+
+
+    </script>
+
+
+</html>
